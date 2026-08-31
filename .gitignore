@@ -1,0 +1,23 @@
+# Secrets & env
+.env
+backend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# DB & local artifacts
+*.db
+backend/trendhunter.db
+backend/data/last_demo_autopsies.json
+
+# IDE
+.idea/
+.vscode/
+skill.md
+trendhunter_backend.md

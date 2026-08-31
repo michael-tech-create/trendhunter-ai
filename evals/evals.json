@@ -1,0 +1,23 @@
+{
+  "skill_name": "trendhunter-backend",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "We're on Day 4 of the hackathon. Build backend/risk_engine.py with a RiskGate class for TrendHunter cash-secured puts. Rules: min premium-to-max-loss 0.125, max position capital $5000, max portfolio capital $50000, earnings inside option window auto-reject, max 3 contracts per day. Include heavy comments on why each rule exists and backend/tests/test_risk_engine.py with unit tests for each rule.",
+      "expected_output": "risk_engine.py with RiskGate and per-rule methods; test_risk_engine.py covering pass/fail for ratio, capital, earnings, daily cap; no AI override path",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Add Trade Autopsy generation for TrendHunter. Create backend/trade_autopsy.py that builds a structured autopsy from an agent Decision plus risk gate result. It must always record supporting_factors, contradicting_factors, risk_gate_approved, and risk_gate_reason—especially when Gemini says SELL_PUT but the gate rejects because earnings fall before expiry.",
+      "expected_output": "trade_autopsy module/dataclass with required explainability fields; gate rejection after SELL_PUT clearly reflected in autopsy; JSON-serializable output",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Wire a minimal POST /scan path in FastAPI for TrendHunter that runs one ticker through signals → (mocked) agent Decision → risk gate → optional execution. Stream WebSocket events for signal_fetched, agent_thinking, risk_gate_result, and trade_autopsy. Do not submit an order unless both agent and risk gate approve. Cash-secured puts only.",
+      "expected_output": "Scan orchestration respecting dual approval; WS event types present; no execution on AVOID/WAIT or gate failure; CSP-only",
+      "files": []
+    }
+  ]
+}
