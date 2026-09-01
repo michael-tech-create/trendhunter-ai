@@ -38,7 +38,8 @@ TrendHunter backend is up. Live demo confirmed the core story: agent can want th
                                                                                                                                                   
    python demo.py AAPL F          # offline-friendly (heuristic, dry-run)                                                                         
    uvicorn main:app --reload --port 8000                                                                                                          
-   # POST /scan   WS /ws   GET /trades   GET /portfolio                                                                                           
+   # POST /scan   WS /ws   GET /trades   GET /portfolio                               
+                                                               
  ```                                                                                                                                              
                                                                                                                                                   
  Copy backend/.env.example → .env and set GEMINI_API_KEY when ready. Install/auth Alpaca CLI to leave dry-run.                                    
