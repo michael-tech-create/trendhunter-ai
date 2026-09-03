@@ -30,6 +30,12 @@ class OrderResult:
         }
 
 
+def _build_occ_symbol(ticker: str, expiry: str, strike: float, option_type: str) -> str:
+    """Construct an OCC option contract symbol, e.g. AAPL260918P00322500."""
+    exp = expiry.replace("-", "")[2:]  # YYYY-MM-DD -> YYMMDD
+    type_char = "P" if option_type.lower().startswith("p") else "C"
+    strike_int = int(round(strike * 1000))
+    return f"{ticker.upper()}{exp}{type_char}{strike_int:08d}"
 def submit_cash_secured_put(
     ticker: str,
     strike: float,
@@ -41,20 +47,22 @@ def submit_cash_secured_put(
 ) -> OrderResult:
     """
     Submit a short put (cash-secured) on paper via Alpaca CLI.
-
     Never call this unless agent decision is SELL_PUT AND risk gate approved.
     Covered calls / multi-leg are intentionally unsupported.
     """
+    import uuid
+
     ticker = ticker.upper().strip()
     if contracts <= 0:
         return OrderResult(False, None, "rejected", {}, "contracts must be positive")
 
+    contract_symbol = _build_occ_symbol(ticker, expiry, strike, "put")
+
     if dry_run or not alpaca_cli_available():
-        oid = f"DRYRUN-{ticker}-{strike}-{expiry}"
+        oid = f"DRYRUN-{contract_symbol}"
         logger.warning(
-            "Dry-run CSP order %s %s x%s (CLI missing or dry_run=True)",
-            ticker,
-            strike,
+            "Dry-run CSP order %s x%s (CLI missing or dry_run=True)",
+            contract_symbol,
             contracts,
         )
         return OrderResult(
@@ -62,7 +70,7 @@ def submit_cash_secured_put(
             order_id=oid,
             status="dry_run_accepted",
             raw={
-                "symbol": ticker,
+                "symbol": contract_symbol,
                 "strike": strike,
                 "expiry": expiry,
                 "qty": contracts,
@@ -76,23 +84,21 @@ def submit_cash_secured_put(
         "order",
         "submit",
         "--symbol",
-        ticker,
-        "--option-type",
-        "put",
-        "--strike",
-        str(strike),
-        "--expiry",
-        expiry,
-        "--quantity",
-        str(contracts),
+        contract_symbol,
         "--side",
         "sell",
+        "--qty",
+        str(contracts),
+        "--time-in-force",
+        "day",
+        "--client-order-id",
+        str(uuid.uuid4()),
     ]
     # Prefer limit at mid when provided; else market (paper)
     if limit_price is not None:
-        args.extend(["--order-type", "limit", "--limit-price", str(limit_price)])
+        args.extend(["--type", "limit", "--limit-price", str(limit_price)])
     else:
-        args.extend(["--order-type", "market"])
+        args.extend(["--type", "market"])
 
     try:
         raw = call_alpaca_cli(args)
@@ -103,7 +109,7 @@ def submit_cash_secured_put(
             or None
         )
         status = str(raw.get("status") or "submitted")
-        logger.info("Submitted CSP %s strike=%s qty=%s order_id=%s", ticker, strike, contracts, order_id)
+        logger.info("Submitted CSP %s qty=%s order_id=%s", contract_symbol, contracts, order_id)
         return OrderResult(True, order_id, status, raw)
     except AlpacaCLIError as e:
         logger.error("Order submit failed: %s", e)
