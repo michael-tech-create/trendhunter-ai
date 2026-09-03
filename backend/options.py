@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -120,15 +121,19 @@ def estimate_iv_history_from_realized(ticker: str, lookback_days: int = 252) -> 
 def fetch_option_chain(ticker: str, expiry: str) -> list[OptionContract]:
     """
     Fetch option chain via Alpaca CLI when available; else yfinance fallback.
-
-    CLI shape varies by version — we normalize defensively into OptionContract.
+    CLI shape varies by version - we normalize defensively into OptionContract.
     """
     ticker = ticker.upper().strip()
     settings = get_settings()
-
     try:
         raw = call_alpaca_cli(
-            ["data", "option", "--symbol", ticker, "--expiry", expiry],
+            [
+                "data", "option", "chain",
+                "--underlying-symbol", ticker,
+                "--expiration-date-gte", expiry,
+                "--expiration-date-lte", (date.fromisoformat(expiry) + timedelta(days=6)).isoformat(),
+                "--type", "put",
+            ],
         )
         contracts = _normalize_chain(raw, ticker, expiry)
         if contracts:
@@ -136,66 +141,58 @@ def fetch_option_chain(ticker: str, expiry: str) -> list[OptionContract]:
             return contracts
     except AlpacaCLIError as e:
         logger.warning("Alpaca CLI chain failed, trying yfinance: %s", e)
-
     return _yf_option_chain(ticker, expiry)
-
-
+_OPT_SYMBOL_RE = re.compile(
+    r"^(?P<underlying>[A-Z]{1,6})(?P<yy>\d{2})(?P<mm>\d{2})(?P<dd>\d{2})"
+    r"(?P<type>[CP])(?P<strike>\d{8})$"
+)
+def _parse_option_symbol(symbol: str) -> Optional[dict]:
+    """Decode strike/expiry/type from an OCC-style contract symbol, e.g. AAPL261002P00125000."""
+    m = _OPT_SYMBOL_RE.match(symbol)
+    if not m:
+        return None
+    return {
+        "underlying": m.group("underlying"),
+        "expiry": f"20{m.group('yy')}-{m.group('mm')}-{m.group('dd')}",
+        "strike": int(m.group("strike")) / 1000.0,
+        "option_type": "call" if m.group("type") == "C" else "put",
+    }
 def _normalize_chain(raw: Any, ticker: str, expiry: str) -> list[OptionContract]:
-    rows: list[Any]
-    if isinstance(raw, list):
-        rows = raw
-    elif isinstance(raw, dict):
-        for key in ("options", "contracts", "data", "results", "quotes"):
-            if isinstance(raw.get(key), list):
-                rows = raw[key]
-                break
-        else:
-            rows = [raw]
-    else:
+    """Parse Alpaca CLI `data option chain` response: {"snapshots": {"<symbol>": {...}}}."""
+    snapshots = raw.get("snapshots") if isinstance(raw, dict) else None
+    if not isinstance(snapshots, dict):
         return []
-
     out: list[OptionContract] = []
-    for row in rows:
-        if not isinstance(row, dict):
+    for symbol, snap in snapshots.items():
+        if not isinstance(snap, dict):
             continue
-        try:
-            opt_type = str(row.get("type") or row.get("option_type") or row.get("optionType") or "").lower()
-            if opt_type and opt_type not in ("put", "p", "call", "c"):
-                # try to infer from symbol
-                opt_type = "put" if "P" in str(row.get("symbol", ""))[-9:] else ""
-            if opt_type in ("p",):
-                opt_type = "put"
-            if opt_type in ("c",):
-                opt_type = "call"
-
-            strike = float(row.get("strike") or row.get("strike_price") or row.get("strikePrice"))
-            bid = float(row.get("bid") or row.get("bid_price") or 0)
-            ask = float(row.get("ask") or row.get("ask_price") or 0)
-            mid = float(row.get("mid") or ((bid + ask) / 2 if bid or ask else row.get("last") or 0))
-            iv_raw = row.get("iv") or row.get("implied_volatility") or row.get("impliedVolatility")
-            iv = float(iv_raw) if iv_raw is not None else None
-            symbol = str(row.get("symbol") or row.get("contract_symbol") or f"{ticker}{expiry}{strike}")
-            exp = str(row.get("expiry") or row.get("expiration") or row.get("expiration_date") or expiry)[:10]
-            oi = row.get("open_interest") or row.get("openInterest")
-            out.append(
-                OptionContract(
-                    symbol=symbol,
-                    underlying=ticker,
-                    strike=strike,
-                    expiry=exp,
-                    option_type=opt_type or "put",
-                    bid=bid,
-                    ask=ask,
-                    mid=mid,
-                    iv=iv,
-                    open_interest=int(oi) if oi is not None else None,
-                )
+        parsed = _parse_option_symbol(symbol)
+        if not parsed:
+            continue
+        quote = snap.get("latestQuote") or {}
+        bid = float(quote.get("bp") or 0)
+        ask = float(quote.get("ap") or 0)
+        mid = (bid + ask) / 2 if (bid or ask) else float((snap.get("latestTrade") or {}).get("p") or 0)
+        # Greeks are currently always zero in this paper environment (confirmed empirically,
+        # not near-expiry-specific) - never trust greeks.delta/iv from the CLI here.
+        greeks = snap.get("greeks") or {}
+        iv_raw = greeks.get("impliedVolatility")
+        iv = float(iv_raw) if iv_raw else None
+        out.append(
+            OptionContract(
+                symbol=symbol,
+                underlying=parsed["underlying"],
+                strike=parsed["strike"],
+                expiry=parsed["expiry"],
+                option_type=parsed["option_type"],
+                bid=bid,
+                ask=ask,
+                mid=mid,
+                iv=iv,
+                open_interest=None,
             )
-        except (TypeError, ValueError, KeyError):
-            continue
+        )
     return out
-
-
 def _yf_option_chain(ticker: str, expiry: str) -> list[OptionContract]:
     """yfinance fallback for paper/demo when CLI is missing."""
     t = yf.Ticker(ticker)
