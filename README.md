@@ -68,4 +68,6 @@ Sensible next steps
 4. Tune the watchlist and capital limits for names that can clear the 0.125 premium/max-loss floor in paper.
 5. Build the React dashboard against /ws, including a P&L view over time.
 
+want to you want me to do next?
+
 
