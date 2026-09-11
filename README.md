@@ -34,10 +34,19 @@ Verified behavior
 That matches the thesis: premium alone never forces a trade, whether the reasoning behind that call comes from the heuristic fallback or from Gemini itself.
 
 Run it
+=======
+# TrendHunter AI
+
+Autonomous cash-secured put agent: **Gemini challenges the trade**, a **deterministic risk gate** can still block it, and paper execution goes through the **Alpaca CLI**.
+
+## Backend
+
+**[backend/README.md](backend/README.md)** for setup, data sources, Alpaca/Gemini auth, and a verified `python3 demo.py F` walkthrough.
 
 ```bash
 cd backend
 source .venv/bin/activate
+
 
 python demo.py AAPL F          # runs Gemini when configured, falls back to heuristic if not
 uvicorn main:app --reload --port 8000
@@ -59,4 +68,4 @@ Sensible next steps
 4. Tune the watchlist and capital limits for names that can clear the 0.125 premium/max-loss floor in paper.
 5. Build the React dashboard against /ws, including a P&L view over time.
 
-Want me to tackle any of those next?
+
