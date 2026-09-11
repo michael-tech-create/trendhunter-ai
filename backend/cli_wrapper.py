@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 from typing import Any, Optional
 
-from config import get_settings
+from config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +20,37 @@ class AlpacaCLIError(RuntimeError):
     """Raised when the Alpaca CLI fails after retries or is unavailable."""
 
 
+def _cli_env(settings: Settings) -> dict[str, str]:
+    """
+    Build env for Alpaca CLI subprocess.
+
+    pydantic-settings loads .env into Settings, not into os.environ, so child
+    processes would otherwise see no credentials after `unset` / a clean shell.
+    Trading paper keys (PK...) from Settings are injected here.
+    """
+    env = os.environ.copy()
+    go_bin = str(Path.home() / "go" / "bin")
+    path = env.get("PATH", "")
+    if go_bin not in path.split(os.pathsep):
+        env["PATH"] = go_bin + os.pathsep + path
+
+    if settings.alpaca_api_key:
+        env["ALPACA_API_KEY"] = settings.alpaca_api_key
+    if settings.alpaca_secret_key:
+        env["ALPACA_SECRET_KEY"] = settings.alpaca_secret_key
+    return env
+
+
+def _resolve_cli_binary(settings: Settings, env: dict[str, str]) -> Optional[str]:
+    configured = settings.alpaca_cli_path
+    if os.path.isabs(configured) and os.path.isfile(configured):
+        return configured
+    return shutil.which(configured, path=env.get("PATH"))
+
+
 def alpaca_cli_available() -> bool:
     settings = get_settings()
-    return shutil.which(settings.alpaca_cli_path) is not None
+    return _resolve_cli_binary(settings, _cli_env(settings)) is not None
 
 
 def call_alpaca_cli(
@@ -40,11 +70,12 @@ def call_alpaca_cli(
     settings = get_settings()
     retries = settings.cli_retries if retries is None else retries
     timeout = settings.cli_timeout_seconds if timeout is None else timeout
-    binary = settings.alpaca_cli_path
+    env = _cli_env(settings)
+    binary = _resolve_cli_binary(settings, env)
 
-    if not shutil.which(binary):
+    if not binary:
         raise AlpacaCLIError(
-            f"Alpaca CLI not found on PATH ('{binary}'). "
+            f"Alpaca CLI not found on PATH ('{settings.alpaca_cli_path}'). "
             "Install from https://github.com/alpacahq/cli or set ALPACA_CLI_PATH."
         )
 
@@ -60,6 +91,7 @@ def call_alpaca_cli(
                 text=True,
                 check=False,
                 timeout=timeout,
+                env=env,
             )
             if result.returncode != 0:
                 raise AlpacaCLIError(

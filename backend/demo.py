@@ -41,7 +41,7 @@ async def on_event(message: dict) -> None:
 
 async def main() -> None:
     tickers = sys.argv[1:] or ["AAPL", "MSFT"]
-    pipe = DecisionPipeline(dry_run_orders=True, use_gemini=False)
+    pipe = DecisionPipeline(dry_run_orders=True, use_gemini=True)
     logger.info("Demo scan starting: %s", tickers)
     results = await pipe.scan_watchlist(tickers=tickers, broadcast=on_event, contracts=1)
     out = Path(__file__).parent / "data" / "last_demo_autopsies.json"
